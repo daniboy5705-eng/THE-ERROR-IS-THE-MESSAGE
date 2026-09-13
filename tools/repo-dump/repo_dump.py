@@ -23,7 +23,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 API = "https://api.github.com"
-UA = "repo-dump-tool/1.2"
+UA = "repo-dump-tool/1.3"
 
 
 def log(msg):
@@ -200,10 +200,15 @@ def sniff_extension(head_bytes, content_type):
     return ct_map.get(ct, "")
 
 
-def download_media(url, token, dest_dir, max_bytes, seen_names, url_map, failures):
+def download_media(url, token, dest_dir, max_bytes, seen_names, url_map, failures, dest_name=None):
     if url in url_map:
         return
-    name = media_filename(url, seen_names)
+    name = dest_name or media_filename(url, seen_names)
+    i = 1
+    while name in seen_names:
+        stem, ext = os.path.splitext(name)
+        name = "%s-%d%s" % (stem, i, ext)
+        i += 1
     dest = os.path.join(dest_dir, name)
     # GitHub attachment CDNs (user-attachments, objects.githubusercontent.com) REJECT
     # requests that forward an Authorization header across their cross-host redirects
@@ -236,7 +241,7 @@ def download_media(url, token, dest_dir, max_bytes, seen_names, url_map, failure
             # proper extension so images/audio/pdf open correctly, using content
             # sniffing (magic bytes) with the response Content-Type as fallback.
             stem, cur_ext = os.path.splitext(name)
-            if cur_ext in ("", ".bin", ".atto"):
+            if dest_name is None and cur_ext in ("", ".bin", ".atto"):
                 sn = sniff_extension(chunks[0][:64] if chunks else b"", content_type)
                 if sn and sn != cur_ext:
                     new_name = stem + sn
@@ -417,6 +422,14 @@ def main():
                 u = a.get("browser_download_url")
                 if u:
                     download_media(u, token, media_dir, max_bytes, seen_names, url_map, failures)
+            # v1.3: also preserve the auto-generated source archives of the tag
+            # (zipball + tarball) so the release is fully reproducible offline.
+            for kind, u in (("tar", rel.get("tarball_url")), ("zip", rel.get("zipball_url"))):
+                if not u:
+                    continue
+                ext = ".tar.gz" if kind == "tar" else ".zip"
+                download_media(u, token, media_dir, max_bytes, seen_names, url_map, failures,
+                               dest_name="%s-source%s" % (slugify(tag, 60), ext))
 
     # ---- scan bodies + saved comment threads for embedded media
     if include_media:
@@ -436,13 +449,36 @@ def main():
                     except Exception as e:
                         log("media scan skip %s: %s" % (fn, e))
 
+    # ---- v1.3: rewrite saved attachment URLs inside the written markdown docs
+    # into relative paths, so the dump is fully self-contained and offline-readable.
+    if url_map:
+        rewritten = 0
+        for dirpath, _dirs, files in os.walk(run_dir):
+            for fn in files:
+                if not fn.endswith(".md"):
+                    continue
+                p = os.path.join(dirpath, fn)
+                with open(p, encoding="utf-8") as f:
+                    txt = f.read()
+                new_txt = txt
+                for u, fname in url_map.items():
+                    if u in new_txt:
+                        rel_path = os.path.relpath(os.path.join(media_dir, fname), dirpath)
+                        new_txt = new_txt.replace(u, rel_path)
+                if new_txt != txt:
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(new_txt)
+                    rewritten += 1
+        log("rewrote media links in %d markdown files" % rewritten)
+
     # ---- index / summary
     index = {
-        "tool": "repo-dump-tool/1.2",
+        "tool": "repo-dump-tool/1.3",
         "repo": "%s/%s" % (owner, repo),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "issues": len(issues), "pull_requests": len(prs), "releases": len(releases),
         "media_files": len(url_map), "media_failures": failures,
+        "docs_rewritten": rewritten if url_map else 0,
     }
     with open(os.path.join(run_dir, "dump.json"), "w", encoding="utf-8") as f:
         json.dump(index, f, indent=2)
