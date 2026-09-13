@@ -1,0 +1,63 @@
+name: "📦 Repo Dump"
+
+# Dump ALL issues, pull requests, releases, comment threads and embedded media
+# of a GitHub repository back into this repository's `dump/` folder.
+#
+# Run it from your phone: Actions tab -> "📦 Repo Dump" -> "Run workflow" -> Run.
+# Nothing else required. Works on any public repo (or private repos you have access to).
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Repository to dump (owner/name). Leave empty = this repository"
+        required: false
+        default: ""
+      include_media:
+        description: "Download embedded media & release artifacts"
+        type: boolean
+        default: true
+      max_file_mb:
+        description: "Skip media files larger than this size (MB)"
+        required: false
+        default: "200"
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: repo-dump
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run repo dump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.event.inputs.target_repo }}"
+          [ -z "$REPO" ] && REPO="${{ github.repository }}"
+          python3 tools/repo-dump/repo_dump.py \
+            --repo "$REPO" \
+            --token "$GH_TOKEN" \
+            --include-media "${{ github.event.inputs.include_media }}" \
+            --max-file-mb "${{ github.event.inputs.max_file_mb }}"
+
+      - name: Commit & push dump into the repository
+        run: |
+          git config user.name "repo-dump[bot]"
+          git config user.email "repo-dump[bot]@users.noreply.github.com"
+          git add dump/
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit"
+            exit 0
+          fi
+          git commit -m "repo-dump: $(date -u +'%Y-%m-%d %H:%M UTC') [skip ci]"
+          git push
