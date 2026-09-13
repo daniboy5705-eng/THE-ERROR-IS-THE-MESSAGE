@@ -23,7 +23,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 API = "https://api.github.com"
-UA = "repo-dump-tool/1.0"
+UA = "repo-dump-tool/1.2"
 
 
 def log(msg):
@@ -142,6 +142,64 @@ def media_filename(url, seen_names):
     return name
 
 
+def sniff_extension(head_bytes, content_type):
+    """Guess a file extension from magic bytes first, then Content-Type header."""
+    b = head_bytes or b""
+    magic = [
+        (b"\x89PNG\r\n\x1a\n", ".png"),
+        (b"\xff\xd8\xff", ".jpg"),
+        (b"GIF87a", ".gif"), (b"GIF89a", ".gif"),
+        (b"%PDF-", ".pdf"),
+        (b"ID3", ".mp3"),
+        (b"OggS", ".ogg"),
+        (b"fLaC", ".flac"),
+        (b"PK\x03\x04", ".zip"),
+        (b"\x1f\x8b", ".gz"),
+        (b"7z\xbc\xaf\x27\x1c", ".7z"),
+        (b"Rar!", ".rar"),
+        (b"wOF2", ".woff2"), (b"wOFF", ".woff"),
+        (b"\x1a\x45\xdf\xa3", ".webm"),
+        (b"\x00\x00\x01\x00", ".ico"),
+        (b"\xd0\xcf\x11\xe0", ".doc"),
+    ]
+    for sig, ext in magic:
+        if b.startswith(sig):
+            if sig == b"RIFF":
+                pass
+            return ext
+    if len(b) >= 12 and b[4:8] == b"ftyp":
+        return ".m4a" if b[8:12] in (b"M4A ", b"M4B ", b"M4P ") else ".mp4"
+    if len(b) >= 12 and b[0:4] == b"RIFF":
+        return ".webp" if b[8:12] == b"WEBP" else (".wav" if b[8:12] == b"WAVE" else "")
+    if b.startswith(b"\xff\xfb") or b.startswith(b"\xff\xf3") or b.startswith(b"\xff\xf2"):
+        return ".mp3"
+    lowered = b[:256].lower()
+    if lowered.startswith(b"<!doctype html") or lowered.startswith(b"<html"):
+        return ".html"
+    if lowered.startswith(b"<?xml"):
+        return ".svg" if b"<svg" in lowered else ".xml"
+    if lowered.startswith(b"{") or lowered.startswith(b"["):
+        return ".json"
+    ct = (content_type or "").split(";")[0].strip().lower()
+    ct_map = {
+        "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
+        "image/webp": ".webp", "image/svg+xml": ".svg", "image/x-icon": ".ico",
+        "image/bmp": ".bmp", "image/tiff": ".tif",
+        "application/pdf": ".pdf", "audio/mpeg": ".mp3", "audio/ogg": ".ogg",
+        "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/mp4": ".m4a",
+        "audio/flac": ".flac", "video/mp4": ".mp4", "video/webm": ".webm",
+        "video/quicktime": ".mov", "text/plain": ".txt", "text/html": ".html",
+        "text/markdown": ".md", "text/csv": ".csv", "application/json": ".json",
+        "application/zip": ".zip", "application/gzip": ".gz",
+        "font/woff2": ".woff2", "font/woff": ".woff",
+        "application/msword": ".doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    }
+    return ct_map.get(ct, "")
+
+
 def download_media(url, token, dest_dir, max_bytes, seen_names, url_map, failures):
     if url in url_map:
         return
@@ -160,6 +218,7 @@ def download_media(url, token, dest_dir, max_bytes, seen_names, url_map, failure
             req.add_header("Authorization", "Bearer " + token)
         try:
             with urllib.request.urlopen(req, timeout=120) as r:
+                content_type = r.headers.get("Content-Type", "")
                 chunks = []
                 total = 0
                 while True:
@@ -173,6 +232,22 @@ def download_media(url, token, dest_dir, max_bytes, seen_names, url_map, failure
             with open(dest, "wb") as f:
                 for c in chunks:
                     f.write(c)
+            # v1.2: give extension-less CDN attachments (user-attachments/<uuid>) a
+            # proper extension so images/audio/pdf open correctly, using content
+            # sniffing (magic bytes) with the response Content-Type as fallback.
+            stem, cur_ext = os.path.splitext(name)
+            if cur_ext in ("", ".bin", ".atto"):
+                sn = sniff_extension(chunks[0][:64] if chunks else b"", content_type)
+                if sn and sn != cur_ext:
+                    new_name = stem + sn
+                    i = 1
+                    while new_name in seen_names:
+                        new_name = "%s-%d%s" % (stem, i, sn)
+                        i += 1
+                    new_dest = os.path.join(dest_dir, new_name)
+                    os.replace(dest, new_dest)
+                    seen_names.add(new_name)
+                    name = new_name
             seen_names.add(name)
             url_map[url] = name
             log("saved media -> %s (%d bytes%s)" % (name, total, ", authed" if use_auth else ""))
@@ -363,7 +438,7 @@ def main():
 
     # ---- index / summary
     index = {
-        "tool": "repo-dump-tool/1.0",
+        "tool": "repo-dump-tool/1.2",
         "repo": "%s/%s" % (owner, repo),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "issues": len(issues), "pull_requests": len(prs), "releases": len(releases),
