@@ -1,0 +1,27 @@
+# Issue: MLK Jr backgrounds....
+
+- **Number:** #30
+- **State:** open
+- **Author:** [attogram](https://github.com/attogram)
+- **Created:** 2026-09-05T07:15:13
+- **Closed:** -
+- **Labels:** -
+- **URL:** https://github.com/attogram/THE-ERROR-IS-THE-MESSAGE/issues/30
+
+---
+
+<img width="1080" height="1562" alt="Image" src="../media/b795e927-f78a-4de8-a4ef-1b11989ba04b.jpg" />
+
+<img width="1080" height="2340" alt="Image" src="../media/dd9dcc0b-b3cc-47ae-9650-6a29d741a99a.jpg" />
+<img width="1080" height="2340" alt="Image" src="../media/ed7b12a3-bcc9-479f-aba4-0c17c59fa4a4.jpg" />
+<img width="1080" height="2340" alt="Image" src="../media/eb8cf3f1-fb42-49dc-a143-8c19bde1a918.jpg" />
+<img width="1080" height="2340" alt="Image" src="../media/efd2d8b2-f71c-469d-b101-566247b2776c.jpg" />
+<img width="1080" height="2340" alt="Image" src="../media/9b72acb3-a025-4a59-9cd7-7ae291f0e0c8.jpg" />
+
+---
+
+## Comment Thread (1)
+
+### [attogram](https://github.com/attogram) - 2026-09-05 07:27:20
+
+#27
