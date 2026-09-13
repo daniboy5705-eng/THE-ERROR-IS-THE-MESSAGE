@@ -1,0 +1,15 @@
+{
+  "tool": "repo-dump-tool/1.2",
+  "repo": "attogram/THE-ERROR-IS-THE-MESSAGE",
+  "generated_at": "2026-09-13T12:44:08.218659+00:00",
+  "issues": 60,
+  "pull_requests": 13,
+  "releases": 4,
+  "media_files": 401,
+  "media_failures": [
+    {
+      "url": "https://github.com/user-attachments/assets/xxxx`",
+      "reason": "HTTP Error 404: Not Found"
+    }
+  ]
+}
