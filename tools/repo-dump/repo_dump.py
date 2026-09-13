@@ -147,34 +147,45 @@ def download_media(url, token, dest_dir, max_bytes, seen_names, url_map, failure
         return
     name = media_filename(url, seen_names)
     dest = os.path.join(dest_dir, name)
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", UA)
-    if token:
-        req.add_header("Authorization", "Bearer " + token)
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            chunks = []
-            total = 0
-            while True:
-                chunk = r.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
-                    raise OverflowError("file exceeds --max-file-mb limit")
-                chunks.append(chunk)
-        with open(dest, "wb") as f:
-            for c in chunks:
-                f.write(c)
-        seen_names.add(name)
-        url_map[url] = name
-        log("saved media -> %s (%d bytes)" % (name, total))
-    except OverflowError as e:
-        failures.append({"url": url, "reason": str(e)})
-        log("skipped media %s: %s" % (url, e))
-    except Exception as e:
-        failures.append({"url": url, "reason": str(e)})
-        log("media download failed %s: %s" % (url, e))
+    # GitHub attachment CDNs (user-attachments, objects.githubusercontent.com) REJECT
+    # requests that forward an Authorization header across their cross-host redirects
+    # (HTTP 400). So: try UNAUTHENTICATED first (covers all public attachments), and
+    # only fall back to an authenticated request (private repos / private-user-images).
+    modes = [False, True] if token else [False]
+    last_err = None
+    for use_auth in modes:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", UA)
+        if use_auth and token:
+            req.add_header("Authorization", "Bearer " + token)
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                chunks = []
+                total = 0
+                while True:
+                    chunk = r.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise OverflowError("file exceeds --max-file-mb limit")
+                    chunks.append(chunk)
+            with open(dest, "wb") as f:
+                for c in chunks:
+                    f.write(c)
+            seen_names.add(name)
+            url_map[url] = name
+            log("saved media -> %s (%d bytes%s)" % (name, total, ", authed" if use_auth else ""))
+            return
+        except OverflowError as e:
+            failures.append({"url": url, "reason": str(e)})
+            log("skipped media %s: %s" % (url, e))
+            return
+        except Exception as e:
+            last_err = e
+            time.sleep(1)
+    failures.append({"url": url, "reason": str(last_err)})
+    log("media download failed %s: %s" % (url, last_err))
 
 
 def rewrite_media(text, url_map, run_dir, doc_path):
